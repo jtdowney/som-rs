@@ -90,11 +90,9 @@ impl<R: BufRead> Lexer<R> {
         }
 
         loop {
-            self.skip_whitespace()?;
-            self.skip_comment()?;
-
             match self.buffer.peek()? {
-                Some(c) if c.is_whitespace() => continue,
+                Some('\"') => self.skip_comment()?,
+                Some(c) if c.is_whitespace() => self.buffer.consume()?,
                 _ => break,
             }
         }
@@ -327,25 +325,12 @@ impl<R: BufRead> Lexer<R> {
         Ok(Some(Token::new(kind, None, location)))
     }
 
-    fn skip_whitespace(&mut self) -> Result<()> {
-        loop {
-            match self.buffer.peek()? {
-                Some(c) if c.is_whitespace() => self.buffer.consume()?,
-                _ => break,
-            }
-        }
-
-        Ok(())
-    }
-
     fn skip_comment(&mut self) -> Result<()> {
-        if let Some('"') = self.buffer.peek()? {
-            loop {
+        loop {
+            self.buffer.consume()?;
+            if let Some('"') = self.buffer.peek()? {
                 self.buffer.consume()?;
-                if let Some('"') = self.buffer.peek()? {
-                    self.buffer.consume()?;
-                    break;
-                }
+                break;
             }
         }
 
@@ -373,7 +358,7 @@ mod tests {
 
     #[test]
     fn skipping_comments() {
-        let source = b"\"Test\" Hello \"123\" Test";
+        let source = b"\"Test\" Hello \"123\"Test";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
         let token = lexer.next().unwrap().unwrap();
