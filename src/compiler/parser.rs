@@ -23,6 +23,28 @@ impl From<io::Error> for Error {
 
 pub type Result<T> = result::Result<T, Error>;
 
+const SYMBOL_KINDS: [TokenKind; 19] = [
+    TokenKind::Identifier,
+    TokenKind::String,
+    TokenKind::Keyword,
+    TokenKind::KeywordSequence,
+    TokenKind::OperatorSequence,
+    TokenKind::And,
+    TokenKind::At,
+    TokenKind::Comma,
+    TokenKind::Divide,
+    TokenKind::Equal,
+    TokenKind::Less,
+    TokenKind::Minus,
+    TokenKind::Modulus,
+    TokenKind::More,
+    TokenKind::Not,
+    TokenKind::Or,
+    TokenKind::Percent,
+    TokenKind::Plus,
+    TokenKind::Star,
+];
+
 pub struct Parser<R: BufRead> {
     lexer: Peekable<Lexer<R>>,
     filename: String,
@@ -96,15 +118,12 @@ impl<R: BufRead> Parser<R> {
             match self.peek_token_kind()? {
                 TokenKind::EndTerm => break,
                 TokenKind::EndBlock => break,
-                // TokenKind::Exit => expressions.push(self.parse_expression_result()?),
+                TokenKind::Exit => expressions.push(self.parse_expression_result()?),
                 _ => expressions.push(self.parse_expression()?),
             };
 
             if let TokenKind::Period = self.peek_token_kind()? {
                 let _ = self.expect_token(TokenKind::Period)?;
-                continue;
-            } else {
-                break;
             }
         }
 
@@ -115,14 +134,68 @@ impl<R: BufRead> Parser<R> {
         let mut expression = self.parse_expression_primary()?;
         loop {
             expression = match self.peek_token_kind()? {
-                // TokenKind::Assign => self.parse_expression_assignment(expression)?,
+                TokenKind::Assign => self.parse_expression_assignment(expression)?,
                 TokenKind::Identifier => self.parse_expression_messages(expression)?,
                 TokenKind::Keyword => self.parse_expression_messages(expression)?,
-                // TokenKind::OperatorSequence => self.parse_expression_messages(expression)?,
-                // kind if kind.is_binary_operator() => self.parse_expression_messages(expression)?,
+                TokenKind::OperatorSequence => self.parse_expression_messages(expression)?,
+                kind if kind.is_binary_operator() => self.parse_expression_messages(expression)?,
                 _ => break,
             }
         }
+
+        Ok(expression)
+    }
+
+    fn parse_expression_array(&mut self) -> Result<ast::Expression> {
+        let mut values = vec![];
+
+        let _ = self.expect_token(TokenKind::NewTerm)?;
+        loop {
+            match self.peek_token_kind()? {
+                TokenKind::EndTerm => break,
+                _ => values.push(self.parse_expression()?),
+            }
+        }
+
+        let _ = self.expect_token(TokenKind::EndTerm)?;
+
+        Ok(ast::Expression::LiteralArray(values))
+    }
+
+    fn parse_expression_assignment(&mut self, left: ast::Expression) -> Result<ast::Expression> {
+        let token = self.expect_token(TokenKind::Assign)?;
+
+        if let ast::Expression::Variable(name) = left {
+            let right = self.parse_expression()?;
+            let expression = ast::Expression::Assignment {
+                variable: name,
+                value: Box::new(right),
+            };
+
+            Ok(expression)
+        } else {
+            Err(Error::ParseError {
+                description:
+                    "Attempt to assign result of expression to something other than a variable"
+                        .into(),
+                filename: self.filename.clone(),
+                location: token.location,
+            })
+        }
+    }
+
+    fn parse_expression_binary_message(
+        &mut self,
+        left: ast::Expression,
+    ) -> Result<ast::Expression> {
+        let kind = self.peek_token_kind()?;
+        let message = self.expect_token(kind)?.text.unwrap();
+        let right = self.parse_expression_binary_operand()?;
+        let expression = ast::Expression::BinaryMessage {
+            message,
+            left: Box::new(left),
+            right: Box::new(right),
+        };
 
         Ok(expression)
     }
@@ -138,16 +211,16 @@ impl<R: BufRead> Parser<R> {
     }
 
     fn parse_expression_formula(&mut self) -> Result<ast::Expression> {
-        let value = self.parse_expression_binary_operand()?;
+        let mut value = self.parse_expression_binary_operand()?;
 
         loop {
             match self.peek_token_kind()? {
-                // TokenKind::OperatorSequence => {
-                //     value = self.parse_expression_binary_message(value)?
-                // }
-                // kind if kind.is_binary_operator() => {
-                //     value = self.parse_expression_binary_message(value)?
-                // }
+                TokenKind::OperatorSequence => {
+                    value = self.parse_expression_binary_message(value)?
+                }
+                kind if kind.is_binary_operator() => {
+                    value = self.parse_expression_binary_message(value)?
+                }
                 _ => break,
             }
         }
@@ -157,10 +230,10 @@ impl<R: BufRead> Parser<R> {
 
     fn parse_expression_identifier(&mut self) -> Result<ast::Expression> {
         let name = self.expect_token(TokenKind::Identifier)?.text.unwrap();
-        let expression = match name {
-            // "false" => ast::Expression::LiteralBoolean(false),
-            // "nil" => ast::Expression::LiteralNil,
-            // "true" => ast::Expression::LiteralBoolean(true),
+        let expression = match name.as_str() {
+            "false" => ast::Expression::LiteralBoolean(false),
+            "nil" => ast::Expression::LiteralNil,
+            "true" => ast::Expression::LiteralBoolean(true),
             _ => ast::Expression::Variable(name),
         };
 
@@ -184,8 +257,8 @@ impl<R: BufRead> Parser<R> {
 
         Ok(ast::Expression::KeywordMessage {
             receiver: Box::new(value),
-            message: message,
-            parameters: parameters,
+            message,
+            parameters,
         })
     }
 
@@ -193,10 +266,15 @@ impl<R: BufRead> Parser<R> {
         match self.peek_token_kind()? {
             TokenKind::Identifier => self.parse_expression_unary_message(value),
             TokenKind::Keyword => self.parse_expression_keyword_message(value),
-            // TokenKind::OperatorSequence => self.parse_expression_binary_message(value),
-            // kind if kind.is_binary_operator() => self.parse_expression_binary_message(value),
+            TokenKind::OperatorSequence => self.parse_expression_binary_message(value),
+            kind if kind.is_binary_operator() => self.parse_expression_binary_message(value),
             _ => unreachable!(),
         }
+    }
+
+    fn parse_expression_negative_number(&mut self) -> Result<ast::Expression> {
+        let _ = self.expect_token(TokenKind::Minus)?;
+        self.parse_expression_number(true)
     }
 
     fn parse_expression_nested_block(&mut self) -> Result<ast::Expression> {
@@ -208,6 +286,14 @@ impl<R: BufRead> Parser<R> {
         };
 
         let _ = self.expect_token(TokenKind::EndBlock)?;
+
+        Ok(expression)
+    }
+
+    fn parse_expression_nested_term(&mut self) -> Result<ast::Expression> {
+        let _ = self.expect_token(TokenKind::NewTerm)?;
+        let expression = self.parse_expression()?;
+        let _ = self.expect_token(TokenKind::EndTerm)?;
 
         Ok(expression)
     }
@@ -227,41 +313,61 @@ impl<R: BufRead> Parser<R> {
 
                 Ok(ast::Expression::LiteralInteger(value))
             }
-            // Token {
-            //     kind: TokenKind::Double,
-            //     text: Some(text),
-            //     ..
-            // } => {
-            //     let mut value: f64 = text.parse().unwrap();
-            //     if negative {
-            //         value = -value;
-            //     }
+            Token {
+                kind: TokenKind::Double,
+                text: Some(text),
+                ..
+            } => {
+                let mut value: f64 = text.parse().unwrap();
+                if negative {
+                    value = -value;
+                }
 
-            //     Ok(ast::Expression::LiteralDouble(value))
-            // }
+                Ok(ast::Expression::LiteralDouble(value))
+            }
             _ => unreachable!(),
         }
     }
 
-    fn parse_expression_primary(&mut self) -> Result<ast::Expression> {
-        eprintln!("{:?}", self.last_location);
+    fn parse_expression_pound(&mut self) -> Result<ast::Expression> {
+        let _ = self.expect_token(TokenKind::Pound)?;
+        if let TokenKind::NewTerm = self.peek_token_kind()? {
+            self.parse_expression_array()
+        } else {
+            self.parse_expression_symbol()
+        }
+    }
 
+    fn parse_expression_primary(&mut self) -> Result<ast::Expression> {
         match self.peek_token_kind()? {
-            // TokenKind::Double => self.parse_expression_number(false),
+            TokenKind::Double => self.parse_expression_number(false),
             TokenKind::Identifier => self.parse_expression_identifier(),
             TokenKind::Integer => self.parse_expression_number(false),
-            // TokenKind::Minus => self.parse_expression_negative_number(),
+            TokenKind::Minus => self.parse_expression_negative_number(),
             TokenKind::NewBlock => self.parse_expression_nested_block(),
-            // TokenKind::NewTerm => self.parse_expression_nested_term(),
-            // TokenKind::Pound => self.parse_expression_symbol(),
+            TokenKind::NewTerm => self.parse_expression_nested_term(),
+            TokenKind::Pound => self.parse_expression_pound(),
             TokenKind::String => self.parse_expression_string(),
             k => unreachable!("Unknown expression token: {:?}", k),
         }
     }
 
+    fn parse_expression_result(&mut self) -> Result<ast::Expression> {
+        let _ = self.expect_token(TokenKind::Exit)?;
+        let statement = Box::new(self.parse_expression()?);
+        Ok(ast::Expression::Return(statement))
+    }
+
     fn parse_expression_string(&mut self) -> Result<ast::Expression> {
         let value = self.expect_token(TokenKind::String)?.text.unwrap();
         let expression = ast::Expression::LiteralString(value);
+
+        Ok(expression)
+    }
+
+    fn parse_expression_symbol(&mut self) -> Result<ast::Expression> {
+        let value = self.expect_token_one_of(&SYMBOL_KINDS)?.text.unwrap();
+        let expression = ast::Expression::LiteralSymbol(value);
 
         Ok(expression)
     }
@@ -328,12 +434,11 @@ impl<R: BufRead> Parser<R> {
         } else {
             let _ = self.expect_token(TokenKind::NewTerm)?;
             let method = ast::Method::Native {
-                name: name,
-                parameters: parameters,
+                name,
+                parameters,
                 locals: try!(self.parse_locals()),
                 body: try!(self.parse_body()),
             };
-            eprintln!("{:?}", method);
 
             let _ = self.expect_token(TokenKind::EndTerm)?;
 
@@ -427,7 +532,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_simple_class() {
+    fn test_parse_with_simple_class() {
         let source = b"Hello = ()";
         let mut parser = Parser::new(source.as_ref(), "test").unwrap();
 
@@ -437,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_superclass() {
+    fn test_parse_with_superclass() {
         let source = b"Hello = Test ()";
         let mut parser = Parser::new(source.as_ref(), "test").unwrap();
 
@@ -447,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_class_with_variables() {
+    fn test_parse_class_with_variables() {
         let source = b"
         Hello = (
             | foo bar |
@@ -462,12 +567,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_class_with_primitive_methods() {
+    fn test_parse_class_with_primitive_methods() {
         let source = b"
         Hello = (
             foo = primitive
-            + other = primitive
-            >= other = primitive
             ----
             bar: a baz: b = primitive
         )";
@@ -483,24 +586,6 @@ mod tests {
             method
         );
 
-        let method = class.instance_methods.get("+").unwrap();
-        assert_eq!(
-            &ast::Method::Primitive {
-                name: "+".into(),
-                parameters: vec!["other".into()],
-            },
-            method
-        );
-
-        let method = class.instance_methods.get(">=").unwrap();
-        assert_eq!(
-            &ast::Method::Primitive {
-                name: ">=".into(),
-                parameters: vec!["other".into()],
-            },
-            method
-        );
-
         let method = class.class_methods.get("bar:baz:").unwrap();
         assert_eq!(
             &ast::Method::Primitive {
@@ -512,14 +597,322 @@ mod tests {
     }
 
     #[test]
-    fn parse_echo_program() {
+    fn test_parse_expression_integer_literal() {
+        let source = b"1.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::LiteralInteger(1), expression);
+    }
+
+    #[test]
+    fn test_parse_expression_negative_integer_literal() {
+        let source = b"-1.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::LiteralInteger(-1), expression);
+    }
+
+    #[test]
+    fn test_parse_expression_double_literal() {
+        let source = b"1.23.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::LiteralDouble(1.23), expression);
+    }
+
+    #[test]
+    fn test_parse_expression_negative_double_literal() {
+        let source = b"-1.23.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::LiteralDouble(-1.23), expression);
+    }
+
+    #[test]
+    fn test_parse_expression_variable() {
+        let source = b"a.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::Variable("a".into()), expression);
+    }
+
+    #[test]
+    fn test_parse_expression_string_literal() {
+        let source = b"'test'.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(expression, ast::Expression::LiteralString("test".into()));
+    }
+
+    #[test]
+    fn test_parse_expression_nil_literal() {
+        let source = b"nil.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::LiteralNil, expression);
+    }
+
+    #[test]
+    fn test_parse_expression_array_literal() {
+        let source = b"#(1 2).";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::LiteralArray(vec![
+                ast::Expression::LiteralInteger(1),
+                ast::Expression::LiteralInteger(2)
+            ]),
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_unary_message() {
+        let source = b"1 println.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::UnaryMessage {
+                message: "println".into(),
+                receiver: Box::new(ast::Expression::LiteralInteger(1)),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_multiple_unary_messages() {
+        let source = b"1 test println.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::UnaryMessage {
+                message: "println".into(),
+                receiver: Box::new(ast::Expression::UnaryMessage {
+                    message: "test".into(),
+                    receiver: Box::new(ast::Expression::LiteralInteger(1)),
+                }),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_binary_operator() {
+        let source = b"1 + 2.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::BinaryMessage {
+                message: "+".into(),
+                left: Box::new(ast::Expression::LiteralInteger(1)),
+                right: Box::new(ast::Expression::LiteralInteger(2)),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_operator_sequence() {
+        let source = b"1 <= 2.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::BinaryMessage {
+                message: "<=".into(),
+                left: Box::new(ast::Expression::LiteralInteger(1)),
+                right: Box::new(ast::Expression::LiteralInteger(2)),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_boolean_literals() {
+        let source = b"true || false.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::BinaryMessage {
+                message: "||".into(),
+                left: Box::new(ast::Expression::LiteralBoolean(true)),
+                right: Box::new(ast::Expression::LiteralBoolean(false)),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_complex_messages() {
+        let source = b"1 with: a length and: 1 + 2.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::KeywordMessage {
+                message: "with:and:".into(),
+                parameters: vec![
+                    ast::Expression::UnaryMessage {
+                        message: "length".into(),
+                        receiver: Box::new(ast::Expression::Variable("a".into())),
+                    },
+                    ast::Expression::BinaryMessage {
+                        message: "+".into(),
+                        left: Box::new(ast::Expression::LiteralInteger(1)),
+                        right: Box::new(ast::Expression::LiteralInteger(2)),
+                    },
+                ],
+                receiver: Box::new(ast::Expression::LiteralInteger(1)),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_assignment() {
+        let source = b"a := 'test'.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::Assignment {
+                variable: "a".into(),
+                value: Box::new(ast::Expression::LiteralString("test".into())),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_assignment_error() {
+        let source = b"1 := 'test'.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let result = parser.parse_expression().unwrap_err();
+
+        if let Error::ParseError {
+            description,
+            filename,
+            location,
+        } = result
+        {
+            assert_eq!(
+                "Attempt to assign result of expression to something other than a variable",
+                description
+            );
+            assert_eq!("test", filename);
+            assert_eq!(Location { column: 2, line: 1 }, location);
+        } else {
+            panic!("Other failure");
+        }
+    }
+
+    #[test]
+    fn test_parse_multiple_assignment() {
+        let source = b"a := b := 'test'.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::Assignment {
+                variable: "a".into(),
+                value: Box::new(ast::Expression::Assignment {
+                    variable: "b".into(),
+                    value: Box::new(ast::Expression::LiteralString("test".into())),
+                }),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_nested_terms() {
+        let source = b"1 + (2 - 1).";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::BinaryMessage {
+                message: "+".into(),
+                left: Box::new(ast::Expression::LiteralInteger(1)),
+                right: Box::new(ast::Expression::BinaryMessage {
+                    message: "-".into(),
+                    left: Box::new(ast::Expression::LiteralInteger(2)),
+                    right: Box::new(ast::Expression::LiteralInteger(1)),
+                }),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_unary_message_binds_highest() {
+        let source = b"1 test + 2.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::BinaryMessage {
+                message: "+".into(),
+                left: Box::new(ast::Expression::UnaryMessage {
+                    receiver: Box::new(ast::Expression::LiteralInteger(1)),
+                    message: "test".into(),
+                }),
+                right: Box::new(ast::Expression::LiteralInteger(2)),
+            },
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_expression_literal_symbols() {
+        let source = b"#test #'test-case' #run:with:.";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(ast::Expression::LiteralSymbol("test".into()), expression);
+
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::LiteralSymbol("test-case".into()),
+            expression
+        );
+
+        let expression = parser.parse_expression().unwrap();
+        assert_eq!(
+            ast::Expression::LiteralSymbol("run:with:".into()),
+            expression
+        );
+    }
+
+    #[test]
+    fn test_parse_method_with_exit() {
         let source = b"
-Echo = (
-    run: args = (
-        args from: 2 to: args length do: [ :arg | arg print. ' ' print ].
-        '' println.
-    )
-)";
+        test = (
+            ^ 1 + 1.
+        )";
+        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let method = parser.parse_method().unwrap();
+        assert_eq!(
+            ast::Method::Native {
+                name: "test".into(),
+                parameters: vec![],
+                locals: vec![],
+                body: vec![ast::Expression::Return(Box::new(
+                    ast::Expression::BinaryMessage {
+                        message: "+".into(),
+                        left: Box::new(ast::Expression::LiteralInteger(1)),
+                        right: Box::new(ast::Expression::LiteralInteger(1)),
+                    },
+                )),],
+            },
+            method
+        );
+    }
+
+    #[test]
+    fn test_parse_echo_program() {
+        let source = b"
+        Echo = (
+            run: args = (
+                args from: 2 to: args length do: [ :arg | arg print. ' ' print ].
+                '' println.
+            )
+        )";
         let mut parser = Parser::new(source.as_ref(), "test").unwrap();
 
         let class = parser.parse().unwrap();

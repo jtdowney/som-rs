@@ -31,6 +31,7 @@ pub enum Expression {
         receiver: Box<Expression>,
         parameters: Vec<Expression>,
     },
+    LiteralArray(Vec<Expression>),
     LiteralBoolean(bool),
     LiteralDouble(f64),
     LiteralInteger(i64),

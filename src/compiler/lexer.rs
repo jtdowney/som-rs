@@ -9,7 +9,9 @@ trait IsOperatorExt {
 impl IsOperatorExt for char {
     fn is_operator(&self) -> bool {
         match *self {
-            '~' | '&' | '|' | '*' | '/' | '\\' | '+' | '=' | '>' | '<' | ',' | '@' | '%' => true,
+            '~' | '&' | '|' | '*' | '/' | '\\' | '+' | '=' | '>' | '<' | ',' | '@' | '%' | '-' => {
+                true
+            }
             _ => false,
         }
     }
@@ -110,7 +112,6 @@ impl<R: BufRead> Lexer<R> {
             '#' => self.read_symbol(TokenKind::Pound),
             '^' => self.read_symbol(TokenKind::Exit),
             '.' => self.read_symbol(TokenKind::Period),
-            '-' => self.read_minus(),
             ':' => self.read_colon(),
             '\'' => self.read_string(),
             c if c.is_ascii_digit() => self.read_number(),
@@ -177,42 +178,6 @@ impl<R: BufRead> Lexer<R> {
         Ok(Some(token))
     }
 
-    fn read_minus(&mut self) -> Result<Option<Token>> {
-        let location = self.buffer.current_location();
-        let mut count = 1;
-
-        self.buffer.consume()?;
-
-        while let Some('-') = self.buffer.peek()? {
-            self.buffer.consume()?;
-            count += 1;
-        }
-
-        if count >= 4 {
-            Ok(Some(Token::new(TokenKind::Separator, None, location)))
-        } else {
-            count -= 1;
-            for i in 0..count {
-                let location = Location {
-                    column: location.column + 1 + i,
-                    ..location
-                };
-
-                self.queue.push_back(Token::new(
-                    TokenKind::Minus,
-                    Some('-'.to_string()),
-                    location,
-                ));
-            }
-
-            Ok(Some(Token::new(
-                TokenKind::Minus,
-                Some('-'.to_string()),
-                location,
-            )))
-        }
-    }
-
     fn read_number(&mut self) -> Result<Option<Token>> {
         let location = self.buffer.current_location();
         let mut text = String::new();
@@ -273,11 +238,15 @@ impl<R: BufRead> Lexer<R> {
         }
 
         if sequence.len() > 1 {
-            Ok(Some(Token::new(
-                TokenKind::OperatorSequence,
-                Some(sequence),
-                location,
-            )))
+            if sequence.chars().all(|c| c == '-') && sequence.len() >= 4 {
+                Ok(Some(Token::new(TokenKind::Separator, None, location)))
+            } else {
+                Ok(Some(Token::new(
+                    TokenKind::OperatorSequence,
+                    Some(sequence),
+                    location,
+                )))
+            }
         } else {
             let c = sequence.chars().nth(0).unwrap();
             let kind = match c {
@@ -294,6 +263,7 @@ impl<R: BufRead> Lexer<R> {
                 ',' => TokenKind::Comma,
                 '@' => TokenKind::At,
                 '%' => TokenKind::Percent,
+                '-' => TokenKind::Minus,
                 _ => unreachable!(),
             };
 
@@ -311,8 +281,23 @@ impl<R: BufRead> Lexer<R> {
             let c = self.buffer.peek()?;
             self.buffer.consume()?;
             match c {
+                Some('\\') => {
+                    let c = self.buffer.peek()?;
+                    self.buffer.consume()?;
+                    match c {
+                        Some('\'') => text.push('\''),
+                        Some('\\') => text.push('\\'),
+                        Some('b') => text.push('\x08'),
+                        Some('f') => text.push('\x0c'),
+                        Some('n') => text.push('\n'),
+                        Some('r') => text.push('\r'),
+                        Some('t') => text.push('\t'),
+                        _ => {}
+                    }
+                }
                 Some(c) if c != '\'' => text.push(c),
-                _ => break,
+                Some(_) => break,
+                None => panic!("Parsing ended inside a string"),
             }
         }
 
@@ -435,32 +420,32 @@ mod tests {
     fn reading_two_minus() {
         let source = b"--";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
-
         let token = lexer.next().unwrap().unwrap();
-        assert_eq!(TokenKind::Minus, token.kind);
-
-        let token = lexer.next().unwrap().unwrap();
-        assert_eq!(TokenKind::Minus, token.kind);
+        assert_eq!(TokenKind::OperatorSequence, token.kind);
+        assert_eq!("--", token.text.unwrap());
     }
 
     #[test]
     fn reading_three_minus() {
         let source = b"---";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
-
         let token = lexer.next().unwrap().unwrap();
-        assert_eq!(TokenKind::Minus, token.kind);
+        assert_eq!(TokenKind::OperatorSequence, token.kind);
+        assert_eq!("---", token.text.unwrap());
+    }
 
+    #[test]
+    fn reading_minus_operator_sequence() {
+        let source = b"-->";
+        let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
-        assert_eq!(TokenKind::Minus, token.kind);
-
-        let token = lexer.next().unwrap().unwrap();
-        assert_eq!(TokenKind::Minus, token.kind);
+        assert_eq!(TokenKind::OperatorSequence, token.kind);
+        assert_eq!("-->", token.text.unwrap());
     }
 
     #[test]
     fn reading_separator() {
-        let source = b"-----";
+        let source = b"----";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Separator, token.kind);
@@ -526,6 +511,15 @@ mod tests {
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::String, token.kind);
         assert_eq!("ᚠᛇᚻ᛫ᛒᛦᚦ᛫ᚠᚱᚩᚠᚢᚱ᛫ᚠᛁᚱᚪ᛫ᚷᛖᚻᚹᛦᛚᚳᚢᛗ", token.text.unwrap());
+    }
+
+    #[test]
+    fn reading_string_with_escape() {
+        let source = b"'\\''";
+        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let token = lexer.next().unwrap().unwrap();
+        assert_eq!(TokenKind::String, token.kind);
+        assert_eq!("'", token.text.unwrap());
     }
 
     #[test]
