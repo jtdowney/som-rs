@@ -328,7 +328,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn skipping_whitespace() {
+    fn test_next_skips_whitespace() {
         let source = b"\n Hello \n Test";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn skipping_comments() {
+    fn test_next_skips_comments() {
         let source = b"\"Test\" Hello \"123\"Test";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn saves_current_location() {
+    fn test_next_saves_current_location() {
         let source = b" \n  World";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -364,7 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_identifier() {
+    fn test_next_reads_identifier() {
         let source = b"Test";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_keyword() {
+    fn test_next_reads_keyword() {
         let source = b"test:";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_two_keyword_sequence() {
+    fn test_next_reads_two_keyword_sequence() {
         let source = b"foo:bar:";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_three_keyword_sequence() {
+    fn test_next_reads_three_keyword_sequence() {
         let source = b"foo:bar:baz:";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -400,7 +400,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_primitive() {
+    fn test_next_reads_primitive() {
         let source = b"primitive";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_minus() {
+    fn test_next_reads_minus() {
         let source = b"-";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_two_minus() {
+    fn test_next_reads_two_minus() {
         let source = b"--";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -426,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_three_minus() {
+    fn test_next_reads_three_minus() {
         let source = b"---";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_minus_operator_sequence() {
+    fn test_next_reads_minus_operator_sequence() {
         let source = b"-->";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_separator() {
+    fn test_next_reads_separator() {
         let source = b"----";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_long_separator() {
+    fn test_next_reads_long_separator() {
         let source = b"----------------\ntest";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -465,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_integer() {
+    fn test_next_reads_integer() {
         let source = b"1";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -474,7 +474,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_integer_and_period() {
+    fn test_next_reads_integer_and_period() {
         let source = b"1.";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -487,7 +487,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_double() {
+    fn test_next_reads_double() {
         let source = b"3.14";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_string() {
+    fn test_next_reads_string() {
         let source = b"'Hello'";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -505,7 +505,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_unicode_string() {
+    fn test_next_reads_unicode_string() {
         let source = "'ᚠᛇᚻ᛫ᛒᛦᚦ᛫ᚠᚱᚩᚠᚢᚱ᛫ᚠᛁᚱᚪ᛫ᚷᛖᚻᚹᛦᛚᚳᚢᛗ'".as_bytes();
         let mut lexer = Lexer::new(source).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -514,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_string_with_escape() {
+    fn test_next_reads_string_with_escape() {
         let source = b"'\\''";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -523,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_colon() {
+    fn test_next_reads_colon() {
         let source = b":";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -531,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_assignment() {
+    fn test_next_reads_assignment() {
         let source = b"foo := 'Hello'";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -548,7 +548,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_simple_symbols() {
+    fn test_next_reads_simple_symbols() {
         let source = b"[]()#^.";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -562,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_simple_operators() {
+    fn test_next_reads_simple_operators() {
         let source = b"~ & | * / \\ + = < > , @ %";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
 
@@ -582,7 +582,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_operator_sequence() {
+    fn test_next_reads_operator_sequence() {
         let source = b"<=";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn reading_example_program() {
+    fn test_next_reads_example_program() {
         let source = b"
         Hello = (
             \"The 'run' method is called when initializing the system\"
