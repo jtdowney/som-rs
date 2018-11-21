@@ -282,26 +282,32 @@ impl<R: BufRead> Lexer<R> {
             self.buffer.consume()?;
             match c {
                 Some('\\') => {
-                    let c = self.buffer.peek()?;
-                    self.buffer.consume()?;
-                    match c {
-                        Some('\'') => text.push('\''),
-                        Some('\\') => text.push('\\'),
-                        Some('b') => text.push('\x08'),
-                        Some('f') => text.push('\x0c'),
-                        Some('n') => text.push('\n'),
-                        Some('r') => text.push('\r'),
-                        Some('t') => text.push('\t'),
-                        _ => {}
+                    if let Some(c) = self.read_string_escape()? {
+                        text.push(c)
                     }
                 }
                 Some(c) if c != '\'' => text.push(c),
-                Some(_) => break,
-                None => panic!("Parsing ended inside a string"),
+                _ => break,
             }
         }
 
         Ok(Some(Token::new(TokenKind::String, Some(text), location)))
+    }
+
+    fn read_string_escape(&mut self) -> Result<Option<char>> {
+        let c = self.buffer.peek()?;
+        self.buffer.consume()?;
+        let result = match c {
+            Some('\'') => Some('\''),
+            Some('\\') => Some('\\'),
+            Some('b') => Some('\x08'),
+            Some('f') => Some('\x0c'),
+            Some('n') => Some('\n'),
+            Some('r') => Some('\r'),
+            Some('t') => Some('\t'),
+            _ => None,
+        };
+        Ok(result)
     }
 
     fn read_symbol(&mut self, kind: TokenKind) -> Result<Option<Token>> {
@@ -515,11 +521,11 @@ mod tests {
 
     #[test]
     fn test_next_reads_string_with_escape() {
-        let source = b"'\\''";
+        let source = b"'\\t \\b \\n \\r \\f \\' \\\\'";
         let mut lexer = Lexer::new(source.as_ref()).unwrap();
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::String, token.kind);
-        assert_eq!("'", token.text.unwrap());
+        assert_eq!("\t \x08 \n \r \x0c ' \\", token.text.unwrap());
     }
 
     #[test]
