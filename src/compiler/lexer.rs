@@ -117,7 +117,7 @@ impl<R: BufRead> Lexer<R> {
             c if c.is_ascii_digit() => self.read_number(),
             c if c.is_ascii_alphabetic() => self.read_identifier(),
             c if c.is_operator() => self.read_operator(),
-            c => panic!("do not understand: {}", c),
+            _ => Ok(None),
         }
     }
 
@@ -264,7 +264,7 @@ impl<R: BufRead> Lexer<R> {
                 '@' => TokenKind::At,
                 '%' => TokenKind::Percent,
                 '-' => TokenKind::Minus,
-                _ => unreachable!(),
+                _ => panic!("bug"),
             };
 
             Ok(Some(Token::new(kind, Some(c.to_string()), location)))
