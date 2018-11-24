@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["John Downey <jdowney@gmail.com>"]
 
 [[bin]]
+name = "compiler"
+path = "src/bin/compiler.rs"
+
+[[bin]]
 name = "lexer"
 path = "src/bin/lexer.rs"
 

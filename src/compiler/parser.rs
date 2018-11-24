@@ -1,27 +1,18 @@
 use crate::compiler::{ast, Lexer, Location, Token, TokenKind};
 use std::collections::HashMap;
-use std::io::{self, BufRead};
+use std::io::BufRead;
 use std::iter::Peekable;
 use std::path::Path;
 use std::result;
 
-#[derive(Debug)]
-pub enum Error {
-    ParseError {
-        description: String,
-        filename: String,
-        location: Location,
-    },
-    IoError(io::Error),
+#[derive(Debug, PartialEq)]
+pub struct ParseError {
+    description: String,
+    filename: String,
+    location: Location,
 }
 
-impl From<io::Error> for Error {
-    fn from(source: io::Error) -> Self {
-        Error::IoError(source)
-    }
-}
-
-pub type Result<T> = result::Result<T, Error>;
+pub type Result<T> = result::Result<T, ParseError>;
 
 const SYMBOL_KINDS: [TokenKind; 19] = [
     TokenKind::Identifier,
@@ -52,12 +43,12 @@ pub struct Parser<R: BufRead> {
 }
 
 impl<R: BufRead> Parser<R> {
-    pub fn new<P: AsRef<Path>>(reader: R, filename: P) -> Result<Parser<R>> {
-        Ok(Parser {
-            lexer: Lexer::new(reader)?.peekable(),
-            filename: filename.as_ref().to_string_lossy().into_owned(),
+    pub fn new<P: AsRef<Path>>(reader: R, filename: P) -> Parser<R> {
+        Parser {
+            lexer: Lexer::new(reader).peekable(),
             last_location: Location::default(),
-        })
+            filename: filename.as_ref().to_string_lossy().into_owned(),
+        }
     }
 
     pub fn parse(&mut self) -> Result<ast::Class> {
@@ -174,7 +165,7 @@ impl<R: BufRead> Parser<R> {
 
             Ok(expression)
         } else {
-            Err(Error::ParseError {
+            Err(ParseError {
                 description:
                     "Attempt to assign result of expression to something other than a variable"
                         .into(),
@@ -348,7 +339,11 @@ impl<R: BufRead> Parser<R> {
             TokenKind::NewTerm => self.parse_expression_nested_term(),
             TokenKind::Pound => self.parse_expression_pound(),
             TokenKind::String => self.parse_expression_string(),
-            k => unreachable!("Unknown expression token: {:?}", k),
+            k => Err(ParseError {
+                description: format!("Unknown expression token: {:?}", k),
+                filename: self.filename.clone(),
+                location: self.last_location,
+            }),
         }
     }
 
@@ -489,8 +484,11 @@ impl<R: BufRead> Parser<R> {
 
     fn peek_token_kind(&mut self) -> Result<TokenKind> {
         match self.lexer.peek() {
-            Some(Ok(t)) => Ok(t.kind),
-            _ => Err(Error::ParseError {
+            Some(Ok(t)) => {
+                self.last_location = t.location;
+                Ok(t.kind)
+            }
+            _ => Err(ParseError {
                 description: "Unexpected end of program".into(),
                 filename: self.filename.clone(),
                 location: self.last_location,
@@ -510,15 +508,19 @@ impl<R: BufRead> Parser<R> {
                 if expected.contains(&t.kind) {
                     Ok(t)
                 } else {
-                    Err(Error::ParseError {
+                    Err(ParseError {
                         description: format!("Expected {:?}, found {:?}", expected, t.kind),
                         filename: self.filename.clone(),
                         location: t.location,
                     })
                 }
             }
-            Some(Err(e)) => Err(e.into()),
-            None => Err(Error::ParseError {
+            Some(Err(e)) => Err(ParseError {
+                description: format!("Lexer error: {:?}", e),
+                filename: self.filename.clone(),
+                location: self.last_location,
+            }),
+            None => Err(ParseError {
                 description: "Unexpected end of program".into(),
                 filename: self.filename.clone(),
                 location: self.last_location,
@@ -534,7 +536,7 @@ mod tests {
     #[test]
     fn test_parse_with_simple_class() {
         let source = b"Hello = ()";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
 
         let class = parser.parse().unwrap();
         assert_eq!("Hello", class.name);
@@ -544,7 +546,7 @@ mod tests {
     #[test]
     fn test_parse_with_superclass() {
         let source = b"Hello = Test ()";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
 
         let class = parser.parse().unwrap();
         assert_eq!("Hello", class.name);
@@ -559,7 +561,7 @@ mod tests {
             ----
             | baz qux |
         )";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
 
         let class = parser.parse().unwrap();
         assert_eq!(vec!["foo", "bar"], class.instance_variables);
@@ -574,7 +576,7 @@ mod tests {
             ----
             bar: a baz: b = primitive
         )";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let class = parser.parse().unwrap();
 
         let method = class.instance_methods.get("foo").unwrap();
@@ -599,15 +601,23 @@ mod tests {
     #[test]
     fn test_parse_expression_integer_literal() {
         let source = b"1.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::LiteralInteger(1), expression);
     }
 
+    // #[test]
+    // fn test_parse_expression_invalid_token() {
+    //     let source = b"+.";
+    //     let mut parser = Parser::new(source.as_ref(), "test");;
+    //     let result = parser.parse_expression().unwrap();
+    //     assert_eq!(ast::Expression::LiteralInteger(1), expression);
+    // }
+
     #[test]
     fn test_parse_expression_negative_integer_literal() {
         let source = b"-1.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::LiteralInteger(-1), expression);
     }
@@ -615,7 +625,7 @@ mod tests {
     #[test]
     fn test_parse_expression_double_literal() {
         let source = b"1.23.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::LiteralDouble(1.23), expression);
     }
@@ -623,7 +633,7 @@ mod tests {
     #[test]
     fn test_parse_expression_negative_double_literal() {
         let source = b"-1.23.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::LiteralDouble(-1.23), expression);
     }
@@ -631,7 +641,7 @@ mod tests {
     #[test]
     fn test_parse_expression_variable() {
         let source = b"a.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::Variable("a".into()), expression);
     }
@@ -639,7 +649,7 @@ mod tests {
     #[test]
     fn test_parse_expression_string_literal() {
         let source = b"'test'.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(expression, ast::Expression::LiteralString("test".into()));
     }
@@ -647,7 +657,7 @@ mod tests {
     #[test]
     fn test_parse_expression_nil_literal() {
         let source = b"nil.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::LiteralNil, expression);
     }
@@ -655,7 +665,7 @@ mod tests {
     #[test]
     fn test_parse_expression_array_literal() {
         let source = b"#(1 2).";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::LiteralArray(vec![
@@ -669,7 +679,7 @@ mod tests {
     #[test]
     fn test_parse_expression_unary_message() {
         let source = b"1 println.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::UnaryMessage {
@@ -683,7 +693,7 @@ mod tests {
     #[test]
     fn test_parse_expression_multiple_unary_messages() {
         let source = b"1 test println.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::UnaryMessage {
@@ -700,7 +710,7 @@ mod tests {
     #[test]
     fn test_parse_expression_binary_operator() {
         let source = b"1 + 2.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::BinaryMessage {
@@ -715,7 +725,7 @@ mod tests {
     #[test]
     fn test_parse_expression_operator_sequence() {
         let source = b"1 <= 2.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::BinaryMessage {
@@ -730,7 +740,7 @@ mod tests {
     #[test]
     fn test_parse_expression_boolean_literals() {
         let source = b"true || false.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::BinaryMessage {
@@ -745,7 +755,7 @@ mod tests {
     #[test]
     fn test_parse_expression_complex_messages() {
         let source = b"1 with: a length and: 1 + 2.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::KeywordMessage {
@@ -770,7 +780,7 @@ mod tests {
     #[test]
     fn test_parse_expression_assignment() {
         let source = b"a := 'test'.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::Assignment {
@@ -784,30 +794,24 @@ mod tests {
     #[test]
     fn test_parse_assignment_error() {
         let source = b"1 := 'test'.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let result = parser.parse_expression().unwrap_err();
-
-        if let Error::ParseError {
-            description,
-            filename,
-            location,
-        } = result
-        {
-            assert_eq!(
-                "Attempt to assign result of expression to something other than a variable",
-                description
-            );
-            assert_eq!("test", filename);
-            assert_eq!(Location { column: 2, line: 1 }, location);
-        } else {
-            panic!("Other failure");
-        }
+        assert_eq!(
+            ParseError {
+                description:
+                    "Attempt to assign result of expression to something other than a variable"
+                        .into(),
+                filename: "test".into(),
+                location: Location { column: 2, line: 1 },
+            },
+            result
+        );
     }
 
     #[test]
     fn test_parse_multiple_assignment() {
         let source = b"a := b := 'test'.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::Assignment {
@@ -824,7 +828,7 @@ mod tests {
     #[test]
     fn test_parse_expression_nested_terms() {
         let source = b"1 + (2 - 1).";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::BinaryMessage {
@@ -843,7 +847,7 @@ mod tests {
     #[test]
     fn test_parse_expression_unary_message_binds_highest() {
         let source = b"1 test + 2.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let expression = parser.parse_expression().unwrap();
         assert_eq!(
             ast::Expression::BinaryMessage {
@@ -861,7 +865,7 @@ mod tests {
     #[test]
     fn test_parse_expression_literal_symbols() {
         let source = b"#test #'test-case' #run:with:.";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
 
         let expression = parser.parse_expression().unwrap();
         assert_eq!(ast::Expression::LiteralSymbol("test".into()), expression);
@@ -885,7 +889,7 @@ mod tests {
         test = (
             ^ 1 + 1.
         )";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
         let method = parser.parse_method().unwrap();
         assert_eq!(
             ast::Method::Native {
@@ -913,7 +917,7 @@ mod tests {
                 '' println.
             )
         )";
-        let mut parser = Parser::new(source.as_ref(), "test").unwrap();
+        let mut parser = Parser::new(source.as_ref(), "test");;
 
         let class = parser.parse().unwrap();
         assert_eq!("Echo", class.name);

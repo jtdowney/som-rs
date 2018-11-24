@@ -25,24 +25,29 @@ struct PeekableBuffer<R: BufRead> {
 }
 
 impl<R: BufRead> PeekableBuffer<R> {
-    fn new(mut reader: R) -> Result<PeekableBuffer<R>> {
-        let mut buffer = String::new();
-        reader.read_line(&mut buffer)?;
-        Ok(PeekableBuffer {
+    fn new(reader: R) -> PeekableBuffer<R> {
+        PeekableBuffer {
             reader,
-            buffer,
+            buffer: String::new(),
             position: 0,
-            line: 1,
-        })
+            line: 0,
+        }
     }
 
     fn peek(&mut self) -> Result<Option<char>> {
+        self.fill_buffer()?;
         let c = self.buffer.chars().nth(self.position);
         Ok(c)
     }
 
     fn consume(&mut self) -> Result<()> {
         self.position += 1;
+        self.fill_buffer()?;
+
+        Ok(())
+    }
+
+    fn fill_buffer(&mut self) -> Result<()> {
         if self.position >= self.buffer.len() {
             self.buffer.clear();
             self.reader.read_line(&mut self.buffer)?;
@@ -79,11 +84,11 @@ impl<R: BufRead> Iterator for Lexer<R> {
 }
 
 impl<R: BufRead> Lexer<R> {
-    pub fn new(reader: R) -> Result<Lexer<R>> {
-        Ok(Lexer {
-            buffer: PeekableBuffer::new(reader)?,
+    pub fn new(reader: R) -> Lexer<R> {
+        Lexer {
+            buffer: PeekableBuffer::new(reader),
             queue: VecDeque::new(),
-        })
+        }
     }
 
     fn read_token(&mut self) -> Result<Option<Token>> {
@@ -336,7 +341,7 @@ mod tests {
     #[test]
     fn test_next_skips_whitespace() {
         let source = b"\n Hello \n Test";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Identifier, token.kind);
@@ -350,7 +355,7 @@ mod tests {
     #[test]
     fn test_next_skips_comments() {
         let source = b"\"Test\" Hello \"123\"Test";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Identifier, token.kind);
@@ -364,7 +369,7 @@ mod tests {
     #[test]
     fn test_next_saves_current_location() {
         let source = b" \n  World";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(Location { line: 2, column: 2 }, token.location);
     }
@@ -372,7 +377,7 @@ mod tests {
     #[test]
     fn test_next_reads_identifier() {
         let source = b"Test";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Identifier, token.kind);
         assert_eq!("Test", token.text.unwrap());
@@ -381,7 +386,7 @@ mod tests {
     #[test]
     fn test_next_reads_keyword() {
         let source = b"test:";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Keyword, token.kind);
         assert_eq!("test:", token.text.unwrap());
@@ -390,7 +395,7 @@ mod tests {
     #[test]
     fn test_next_reads_two_keyword_sequence() {
         let source = b"foo:bar:";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::KeywordSequence, token.kind);
         assert_eq!("foo:bar:", token.text.unwrap());
@@ -399,7 +404,7 @@ mod tests {
     #[test]
     fn test_next_reads_three_keyword_sequence() {
         let source = b"foo:bar:baz:";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::KeywordSequence, token.kind);
         assert_eq!("foo:bar:baz:", token.text.unwrap());
@@ -408,7 +413,7 @@ mod tests {
     #[test]
     fn test_next_reads_primitive() {
         let source = b"primitive";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Primitive, token.kind);
         assert_eq!(None, token.text);
@@ -417,7 +422,7 @@ mod tests {
     #[test]
     fn test_next_reads_minus() {
         let source = b"-";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Minus, token.kind);
     }
@@ -425,7 +430,7 @@ mod tests {
     #[test]
     fn test_next_reads_two_minus() {
         let source = b"--";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::OperatorSequence, token.kind);
         assert_eq!("--", token.text.unwrap());
@@ -434,7 +439,7 @@ mod tests {
     #[test]
     fn test_next_reads_three_minus() {
         let source = b"---";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::OperatorSequence, token.kind);
         assert_eq!("---", token.text.unwrap());
@@ -443,7 +448,7 @@ mod tests {
     #[test]
     fn test_next_reads_minus_operator_sequence() {
         let source = b"-->";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::OperatorSequence, token.kind);
         assert_eq!("-->", token.text.unwrap());
@@ -452,7 +457,7 @@ mod tests {
     #[test]
     fn test_next_reads_separator() {
         let source = b"----";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Separator, token.kind);
     }
@@ -460,7 +465,7 @@ mod tests {
     #[test]
     fn test_next_reads_long_separator() {
         let source = b"----------------\ntest";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Separator, token.kind);
@@ -473,7 +478,7 @@ mod tests {
     #[test]
     fn test_next_reads_integer() {
         let source = b"1";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Integer, token.kind);
         assert_eq!("1", token.text.unwrap());
@@ -482,7 +487,7 @@ mod tests {
     #[test]
     fn test_next_reads_integer_and_period() {
         let source = b"1.";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Integer, token.kind);
@@ -495,7 +500,7 @@ mod tests {
     #[test]
     fn test_next_reads_double() {
         let source = b"3.14";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Double, token.kind);
         assert_eq!("3.14", token.text.unwrap());
@@ -504,7 +509,7 @@ mod tests {
     #[test]
     fn test_next_reads_string() {
         let source = b"'Hello'";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::String, token.kind);
         assert_eq!("Hello", token.text.unwrap());
@@ -513,7 +518,7 @@ mod tests {
     #[test]
     fn test_next_reads_unicode_string() {
         let source = "'ᚠᛇᚻ᛫ᛒᛦᚦ᛫ᚠᚱᚩᚠᚢᚱ᛫ᚠᛁᚱᚪ᛫ᚷᛖᚻᚹᛦᛚᚳᚢᛗ'".as_bytes();
-        let mut lexer = Lexer::new(source).unwrap();
+        let mut lexer = Lexer::new(source);
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::String, token.kind);
         assert_eq!("ᚠᛇᚻ᛫ᛒᛦᚦ᛫ᚠᚱᚩᚠᚢᚱ᛫ᚠᛁᚱᚪ᛫ᚷᛖᚻᚹᛦᛚᚳᚢᛗ", token.text.unwrap());
@@ -522,7 +527,7 @@ mod tests {
     #[test]
     fn test_next_reads_string_with_escape() {
         let source = b"'\\t \\b \\n \\r \\f \\' \\\\'";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::String, token.kind);
         assert_eq!("\t \x08 \n \r \x0c ' \\", token.text.unwrap());
@@ -531,7 +536,7 @@ mod tests {
     #[test]
     fn test_next_reads_colon() {
         let source = b":";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Colon, token.kind);
     }
@@ -539,7 +544,7 @@ mod tests {
     #[test]
     fn test_next_reads_assignment() {
         let source = b"foo := 'Hello'";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Identifier, token.kind);
@@ -556,7 +561,7 @@ mod tests {
     #[test]
     fn test_next_reads_simple_symbols() {
         let source = b"[]()#^.";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         assert_eq!(TokenKind::NewBlock, lexer.next().unwrap().unwrap().kind);
         assert_eq!(TokenKind::EndBlock, lexer.next().unwrap().unwrap().kind);
@@ -570,7 +575,7 @@ mod tests {
     #[test]
     fn test_next_reads_simple_operators() {
         let source = b"~ & | * / \\ + = < > , @ %";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         assert_eq!(TokenKind::Not, lexer.next().unwrap().unwrap().kind);
         assert_eq!(TokenKind::And, lexer.next().unwrap().unwrap().kind);
@@ -590,7 +595,7 @@ mod tests {
     #[test]
     fn test_next_reads_operator_sequence() {
         let source = b"<=";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::OperatorSequence, token.kind);
         assert_eq!("<=", token.text.unwrap());
@@ -604,7 +609,7 @@ mod tests {
             run = ('Hello, World from SOM' println)
         )
         ";
-        let mut lexer = Lexer::new(source.as_ref()).unwrap();
+        let mut lexer = Lexer::new(source.as_ref());;
 
         let token = lexer.next().unwrap().unwrap();
         assert_eq!(TokenKind::Identifier, token.kind);

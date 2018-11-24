@@ -1,10 +1,12 @@
 pub mod ast;
 mod lexer;
 mod parser;
+pub mod sourcecode_compiler;
 mod token;
 
 pub use self::lexer::Lexer;
-pub use self::parser::Parser;
+pub use self::parser::{ParseError, Parser};
+pub use self::sourcecode_compiler::compile_path;
 pub use self::token::{Token, TokenKind};
 
 #[derive(Copy, Clone, Debug, PartialEq)]
